@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="RunnersLog">
+    <meta name="theme-color" content="#1D9E75">
+    <meta name="description" content="Calculadora de ritmos y calendario de series para corredores">
+    
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" type="image/png" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%231D9E75' width='192' height='192'/><text x='50%' y='60%' font-size='120' fill='white' text-anchor='middle' dy='.3em'>🏃</text></svg>">
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%231D9E75' width='180' height='180' rx='40'/><text x='50%' y='55%' font-size='100' fill='white' text-anchor='middle' dy='.3em'>🏃</text></svg>">
+    
+    <title>RunnersLog - Calculadora de Ritmos</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', sans-serif;
+            background: #f8f8f8;
+            -webkit-font-smoothing: antialiased;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+        }
+        
+        html, body, #root {
+            height: 100%;
+            width: 100%;
+            position: fixed;
+            overflow: hidden;
+        }
+        
+        #root {
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            position: relative;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        function RunningApp() {
+            const [isLoggedIn, setIsLoggedIn] = useState(false);
+            const [password, setPassword] = useState('');
+            const [isFirstLogin, setIsFirstLogin] = useState(false);
+            const [newPassword, setNewPassword] = useState('');
+            const [loginPassword, setLoginPassword] = useState('');
+            const [loginError, setLoginError] = useState('');
+
+            const [activeTab, setActiveTab] = useState('calculator');
+            const [calculatorMode, setCalculatorMode] = useState('distance-to-pace');
+            
+            const [time, setTime] = useState('');
+            const [distance, setDistance] = useState('');
+            const [resultPace, setResultPace] = useState('');
+
+            const [targetPace, setTargetPace] = useState('');
+            const [targetDistances, setTargetDistances] = useState([100, 200, 300, 400, 500, 600, 700, 800, 900, 1000]);
+            const [splitTimes, setSplitTimes] = useState([]);
+
+            const [workouts, setWorkouts] = useState([]);
+            const [currentMonth, setCurrentMonth] = useState(new Date());
+            const [selectedDate, setSelectedDate] = useState(null);
+            const [workoutForm, setWorkoutForm] = useState({ distance: '', time: '', pace: '' });
+
+            // Registrar service worker
+            useEffect(() => {
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.register('sw.js').catch(() => {});
+                }
+
+                const savedPassword = localStorage.getItem('running-app-password');
+                if (!savedPassword) {
+                    setIsFirstLogin(true);
+                }
+            }, []);
+
+            const handleFirstLogin = () => {
+                if (!newPassword) {
+                    setLoginError('La contraseña no puede estar vacía');
+                    return;
+                }
+                localStorage.setItem('running-app-password', newPassword);
+                const workoutsData = localStorage.getItem('running-workouts');
+                if (workoutsData) setWorkouts(JSON.parse(workoutsData));
+                setIsLoggedIn(true);
+                setIsFirstLogin(false);
+            };
+
+            const handleLogin = () => {
+                const savedPassword = localStorage.getItem('running-app-password');
+                if (loginPassword === savedPassword) {
+                    const workoutsData = localStorage.getItem('running-workouts');
+                    if (workoutsData) setWorkouts(JSON.parse(workoutsData));
+                    setIsLoggedIn(true);
+                    setLoginError('');
+                } else {
+                    setLoginError('Contraseña incorrecta');
+                }
+            };
+
+            const handleLogout = () => {
+                setIsLoggedIn(false);
+                setLoginPassword('');
+                setLoginError('');
+            };
+
+            const calculatePaceFromTime = () => {
+                if (!time || !distance) {
+                    setResultPace('');
+                    return;
+                }
+
+                const timeParts = time.split(':');
+                const minutes = parseInt(timeParts[0]) || 0;
+                const seconds = parseInt(timeParts[1]) || 0;
+                const totalSeconds = minutes * 60 + seconds;
+
+                const distanceKm = distance / 1000;
+                const paceSeconds = totalSeconds / distanceKm;
+                const paceMinutes = Math.floor(paceSeconds / 60);
+                const paceSecs = Math.round(paceSeconds % 60);
+
+                setResultPace(`${paceMinutes}:${paceSecs.toString().padStart(2, '0')} min/km`);
+            };
+
+            const calculateSplitTimes = () => {
+                if (!targetPace) {
+                    setSplitTimes([]);
+                    return;
+                }
+
+                const paceParts = targetPace.split(':');
+                const paceMinutes = parseInt(paceParts[0]) || 0;
+                const paceSeconds = parseInt(paceParts[1]) || 0;
+                const totalPaceSeconds = paceMinutes * 60 + paceSeconds;
+
+                const splits = targetDistances.map(dist => {
+                    const distKm = dist / 1000;
+                    const timeSeconds = totalPaceSeconds * distKm;
+                    const mins = Math.floor(timeSeconds / 60);
+                    const secs = Math.round(timeSeconds % 60);
+                    return {
+                        distance: dist,
+                        time: `${mins}:${secs.toString().padStart(2, '0')}`
+                    };
+                });
+
+                setSplitTimes(splits);
+            };
+
+            const getDaysInMonth = (date) => {
+                return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+            };
+
+            const getFirstDayOfMonth = (date) => {
+                return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+            };
+
+            const saveWorkout = () => {
+                if (!selectedDate || !workoutForm.distance || !workoutForm.time) return;
+
+                const dateStr = selectedDate.toISOString().split('T')[0];
+                const newWorkout = {
+                    date: dateStr,
+                    distance: workoutForm.distance,
+                    time: workoutForm.time,
+                    pace: workoutForm.pace
+                };
+
+                const updatedWorkouts = workouts.filter(w => w.date !== dateStr);
+                updatedWorkouts.push(newWorkout);
+                setWorkouts(updatedWorkouts);
+                localStorage.setItem('running-workouts', JSON.stringify(updatedWorkouts));
+
+                setWorkoutForm({ distance: '', time: '', pace: '' });
+                setSelectedDate(null);
+            };
+
+            const deleteWorkout = (dateStr) => {
+                const updatedWorkouts = workouts.filter(w => w.date !== dateStr);
+                setWorkouts(updatedWorkouts);
+                localStorage.setItem('running-workouts', JSON.stringify(updatedWorkouts));
+            };
+
+            const getWorkoutForDate = (date) => {
+                const dateStr = date.toISOString().split('T')[0];
+                return workouts.find(w => w.date === dateStr);
+            };
+
+            if (!isLoggedIn) {
+                if (isFirstLogin) {
+                    return (
+                        <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #1D9E75 0%, #085041 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+                            <div style={{ width: '100%', maxWidth: '360px', background: 'white', borderRadius: '20px', padding: '40px 30px', boxShadow: '0 10px 40px rgba(0,0,0,0.1)', textAlign: 'center' }}>
+                                <div style={{ fontSize: '48px', marginBottom: '20px' }}>🏃</div>
+                                <h1 style={{ fontSize: '28px', fontWeight: '600', margin: '0 0 10px', color: '#1a1a1a' }}>RunnersLog</h1>
+                                <p style={{ color: '#666', fontSize: '14px', marginBottom: '30px' }}>Tu calculadora de ritmos personal</p>
+                                
+                                <div style={{ marginBottom: '20px' }}>
+                                    <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px', color: '#333', textAlign: 'left' }}>Crea una contraseña</label>
+                                    <input
+                                        type="password"
+                                        value={newPassword}
+                                        onChange={(e) => setNewPassword(e.target.value)}
+                                        onKeyPress={(e) => e.key === 'Enter' && handleFirstLogin()}
+                                        placeholder="Contraseña segura"
+                                        style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '16px', marginBottom: '15px' }}
+                                    />
+                                    <button
+                                        onClick={handleFirstLogin}
+                                        style={{ width: '100%', padding: '12px', background: '#1D9E75', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}
+                                    >
+                                        Comenzar
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #1D9E75 0%, #085041 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+                        <div style={{ width: '100%', maxWidth: '360px', background: 'white', borderRadius: '20px', padding: '40px 30px', boxShadow: '0 10px 40px rgba(0,0,0,0.1)', textAlign: 'center' }}>
+                            <div style={{ fontSize: '48px', marginBottom: '20px' }}>🏃</div>
+                            <h1 style={{ fontSize: '28px', fontWeight: '600', margin: '0 0 10px', color: '#1a1a1a' }}>Bienvenido</h1>
+                            <p style={{ color: '#666', fontSize: '14px', marginBottom: '30px' }}>Ingresa tu contraseña</p>
+                            
+                            <div style={{ marginBottom: '20px' }}>
+                                <input
+                                    type="password"
+                                    value={loginPassword}
+                                    onChange={(e) => setLoginPassword(e.target.value)}
+                                    onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
+                                    placeholder="Contraseña"
+                                    style={{ width: '100%', padding: '12px', border: loginError ? '2px solid #E24B4A' : '1px solid #ddd', borderRadius: '8px', fontSize: '16px', marginBottom: '15px' }}
+                                />
+                                {loginError && <p style={{ color: '#E24B4A', fontSize: '13px', margin: '0 0 10px' }}>{loginError}</p>}
+                                <button
+                                    onClick={handleLogin}
+                                    style={{ width: '100%', padding: '12px', background: '#1D9E75', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer' }}
+                                >
+                                    Ingresar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div style={{ minHeight: '100vh', background: '#f8f8f8', paddingBottom: '80px' }}>
+                    <div style={{ background: 'linear-gradient(135deg, #1D9E75 0%, #085041 100%)', color: 'white', padding: '20px', paddingTop: '40px', textAlign: 'center', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}>
+                        <h1 style={{ margin: '0 0 5px', fontSize: '24px', fontWeight: '700' }}>RunnersLog</h1>
+                        <p style={{ margin: 0, fontSize: '13px', opacity: 0.9 }}>Calcula tus ritmos de series</p>
+                    </div>
+
+                    <div style={{ display: 'flex', borderBottom: '1px solid #ddd', background: 'white', position: 'sticky', top: 0, zIndex: 10 }}>
+                        <button
+                            onClick={() => setActiveTab('calculator')}
+                            style={{ flex: 1, padding: '14px', border: 'none', background: activeTab === 'calculator' ? 'white' : '#f5f5f5', borderBottom: activeTab === 'calculator' ? '3px solid #1D9E75' : 'none', color: activeTab === 'calculator' ? '#1D9E75' : '#666', fontWeight: activeTab === 'calculator' ? '600' : '500', cursor: 'pointer', fontSize: '14px' }}
+                        >
+                            Calculadora
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('calendar')}
+                            style={{ flex: 1, padding: '14px', border: 'none', background: activeTab === 'calendar' ? 'white' : '#f5f5f5', borderBottom: activeTab === 'calendar' ? '3px solid #1D9E75' : 'none', color: activeTab === 'calendar' ? '#1D9E75' : '#666', fontWeight: activeTab === 'calendar' ? '600' : '500', cursor: 'pointer', fontSize: '14px' }}
+                        >
+                            Calendario
+                        </button>
+                    </div>
+
+                    {activeTab === 'calculator' && (
+                        <div style={{ padding: '20px', maxWidth: '500px', margin: '0 auto' }}>
+                            <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+                                <button
+                                    onClick={() => setCalculatorMode('distance-to-pace')}
+                                    style={{ flex: 1, padding: '12px', border: '1px solid #ddd', borderRadius: '8px', background: calculatorMode === 'distance-to-pace' ? '#1D9E75' : 'white', color: calculatorMode === 'distance-to-pace' ? 'white' : '#333', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
+                                >
+                                    Tiempo → Ritmo
+                                </button>
+                                <button
+                                    onClick={() => setCalculatorMode('pace-to-distance')}
+                                    style={{ flex: 1, padding: '12px', border: '1px solid #ddd', borderRadius: '8px', background: calculatorMode === 'pace-to-distance' ? '#1D9E75' : 'white', color: calculatorMode === 'pace-to-distance' ? 'white' : '#333', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
+                                >
+                                    Ritmo → Splits
+                                </button>
+                            </div>
+
+                            {calculatorMode === 'distance-to-pace' && (
+                                <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                                    <h2 style={{ margin: '0 0 20px', fontSize: '16px', fontWeight: '600', color: '#333' }}>Tiempo de serie → Ritmo por km</h2>
+
+                                    <div style={{ marginBottom: '16px' }}>
+                                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '6px', color: '#555' }}>Distancia (metros)</label>
+                                        <input
+                                            type="number"
+                                            value={distance}
+                                            onChange={(e) => setDistance(e.target.value)}
+                                            placeholder="Ej: 400"
+                                            style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '16px' }}
+                                        />
+                                    </div>
+
+                                    <div style={{ marginBottom: '20px' }}>
+                                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '6px', color: '#555' }}>Tiempo (min:seg)</label>
+                                        <input
+                                            type="text"
+                                            value={time}
+                                            onChange={(e) => setTime(e.target.value)}
+                                            placeholder="Ej: 1:12"
+                                            style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '16px' }}
+                                        />
+                                        <p style={{ fontSize: '12px', color: '#999', margin: '6px 0 0', textAlign: 'center' }}>Formato: minuto:segundo</p>
+                                    </div>
+
+                                    <button
+                                        onClick={calculatePaceFromTime}
+                                        style={{ width: '100%', padding: '14px', background: '#1D9E75', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px', marginBottom: '20px' }}
+                                    >
+                                        Calcular ritmo
+                                    </button>
+
+                                    {resultPace && (
+                                        <div style={{ background: '#f0fdf4', border: '1px solid #dcfce7', borderRadius: '8px', padding: '16px', textAlign: 'center' }}>
+                                            <p style={{ margin: '0 0 8px', fontSize: '12px', color: '#666' }}>Tu ritmo es:</p>
+                                            <p style={{ margin: 0, fontSize: '32px', fontWeight: '700', color: '#1D9E75' }}>{resultPace}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {calculatorMode === 'pace-to-distance' && (
+                                <div style={{ background: 'white', borderRadius: '12px', padding: '24px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                                    <h2 style={{ margin: '0 0 20px', fontSize: '16px', fontWeight: '600', color: '#333' }}>Ritmo objetivo → Tiempos de series</h2>
+
+                                    <div style={{ marginBottom: '20px' }}>
+                                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '6px', color: '#555' }}>Ritmo objetivo (min:seg/km)</label>
+                                        <input
+                                            type="text"
+                                            value={targetPace}
+                                            onChange={(e) => setTargetPace(e.target.value)}
+                                            placeholder="Ej: 4:30"
+                                            style={{ width: '100%', padding: '12px', border: '1px solid #ddd', borderRadius: '8px', fontSize: '16px' }}
+                                        />
+                                    </div>
+
+                                    <button
+                                        onClick={calculateSplitTimes}
+                                        style={{ width: '100%', padding: '14px', background: '#1D9E75', color: 'white', border: 'none', borderRadius: '8px', fontWeight: '600', cursor: 'pointer', fontSize: '14px', marginBottom: '20px' }}
+                                    >
+                                        Calcular splits
+                                    </button>
+
+                                    {splitTimes.length > 0 && (
+                                        <div style={{ background: '#f8fffe', borderRadius: '8px', padding: '0', overflow: 'hidden' }}>
+                                            {splitTimes.map((split, idx) => (
+                                                <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', borderBottom: idx < splitTimes.length - 1 ? '1px solid #e0e0e0' : 'none' }}>
+                                                    <span style={{ fontSize: '13px', color: '#666', fontWeight: '500' }}>{split.distance}m</span>
+                                                    <span style={{ fontSize: '16px', fontWeight: '700', color: '#1D9E75' }}>{split.time}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === 'calendar' && (
+                        <div style={{ padding: '20px', maxWidth: '500px', margin: '0 auto' }}>
+                            <div style={{ background: 'white', borderRadius: '12px', padding: '16px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                    <button
+                                        onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1))}
+                                        style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', padding: '0' }}
+                                    >
+                                        ←
+                                    </button>
+                                    <h3 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: '#333' }}>
+                                        {currentMonth.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+                                    </h3>
+                                    <button
+                                        onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1))}
+                                        style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer', padding: '0' }}
+                                    >
+                                        →
+                                    </button>
+                                </div>
+
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '4px' }}>
+                                    {['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(day => (
+                                        <div key={day} style={{ textAlign: 'center', fontSize: '11px', fontWeight: '600', color: '#999', padding: '8px 0' }}>
+                                            {day}
+                                        </div>
+                                    ))}
+
+                                    {[...Array(getFirstDayOfMonth(currentMonth))].map((_, i) => (
+                                        <div key={`empty-${i}`} style={{ aspectRatio: '1' }}></div>
+                                    ))}
+
+                                    {[...Array(getDaysInMonth(currentMonth))].map((_, i) => {
+                                        const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), i + 1);
+                                        const workout = getWorkoutForDate(date);
+                                        const isSelected = selectedDate?.toDateString() === date.toDateString();
+
+                                        return (
+                                            <button
+                                                key={i}
+                                                onClick={() => setSelectedDate(date)}
+                                                style={{
+                                                    aspectRatio: '1',
+                                                    border: isSelected ? '2px solid #1D9E75' : '1px solid #eee',
+                                                    borderRadius: '8px',
+                                                    background: workout ? '#f0fdf4' : isSelected ? '#f0fdf4' : 'white',
+                                                    color: '#333',
+                                                    cursor: 'pointer',
+                                                    fontSize: '13px',
+                                                    fontWeight: workout ? '700' : '500',
+                                                    padding: '0',
+                                                    position: 'relative',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center'
+                                                }}
+                                            >
+                                                {i + 1}
+                                                {workout && <div style={{ width: '4px', height: '4px', background: '#1D9E75', borderRadius: '50%', position: 'absolute', bottom: '3px' }}></div>}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {selectedDate && (
+                                <div style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', marginBottom: '20px' }}>
+                                    <h3 style={{ margin: '0 0 16px', fontSize: '15px', fontWeight: '600', color: '#333' }}>
+                                        {selectedDate.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+                                    </h3>
+
+                                    <div style={{ marginBottom: '12px' }}>
+                                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '4px', color: '#555' }}>Distancia (m)</label>
+                                        <input
+                                            type="number"
+                                            value={workoutForm.distance}
+                                            onChange={(e) => setWorkoutForm({ ...workoutForm, distance: e.target.value })}
+                                            placeholder="Ej: 1200"
+                                            style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}
+                                        />
+                                    </div>
+
+                                    <div style={{ marginBottom: '12px' }}>
+                                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '4px', color: '#555' }}>Tiempo (min:seg)</label>
+                                        <input
+                                            type="text"
+                                            value={workoutForm.time}
+                                            onChange={(e) => setWorkoutForm({ ...workoutForm, time: e.target.value })}
+                                            placeholder="Ej: 4:45"
+                                            style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}
+                                        />
+                                    </div>
+
+                                    <div style={{ marginBottom: '16px' }}>
+                                        <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '4px', color: '#555' }}>Ritmo (min:seg/km)</label>
+                                        <input
+                                            type="text"
+                                            value={workoutForm.pace}
+                                            onChange={(e) => setWorkoutForm({ ...workoutForm, pace: e.target.value })}
+                                            placeholder="Ej: 4:00"
+                                            style={{ width: '100%', padding: '10px', border: '1px solid #ddd', borderRadius: '6px', fontSize: '14px' }}
+                                        />
+                                    </div>
+
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        <button
+                                            onClick={saveWorkout}
+                                            style={{ flex: 1, padding: '12px', background: '#1D9E75', color: 'white', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
+                                        >
+                                            Guardar
+                                        </button>
+                                        <button
+                                            onClick={() => setSelectedDate(null)}
+                                            style={{ flex: 1, padding: '12px', background: '#f0f0f0', color: '#333', border: 'none', borderRadius: '6px', fontWeight: '600', cursor: 'pointer', fontSize: '13px' }}
+                                        >
+                                            Cancelar
+                                        </button>
+                                    </div>
+
+                                    {getWorkoutForDate(selectedDate) && (
+                                        <button
+                                            onClick={() => deleteWorkout(selectedDate.toISOString().split('T')[0])}
+                                            style={{ width: '100%', marginTop: '10px', padding: '10px', background: '#fee2e2', color: '#991f1f', border: 'none', borderRadius: '6px', fontWeight: '500', cursor: 'pointer', fontSize: '13px' }}
+                                        >
+                                            Eliminar registro
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            {workouts.length > 0 && (
+                                <div style={{ background: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.08)' }}>
+                                    <h3 style={{ margin: '0 0 16px', fontSize: '14px', fontWeight: '600', color: '#333' }}>Últimas series</h3>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        {workouts.slice(-5).reverse().map((workout, idx) => (
+                                            <div key={idx} style={{ padding: '12px', background: '#f8fffe', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <div>
+                                                    <p style={{ margin: '0 0 4px', fontSize: '12px', color: '#999' }}>
+                                                        {new Date(workout.date).toLocaleDateString('es-ES')}
+                                                    </p>
+                                                    <p style={{ margin: 0, fontSize: '13px', fontWeight: '600', color: '#333' }}>
+                                                        {workout.distance}m • {workout.time} • {workout.pace}/km
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, background: 'white', borderTop: '1px solid #ddd', padding: '12px', textAlign: 'center' }}>
+                        <button
+                            onClick={handleLogout}
+                            style={{ padding: '10px 20px', background: '#f0f0f0', color: '#666', border: 'none', borderRadius: '6px', fontWeight: '500', cursor: 'pointer', fontSize: '13px' }}
+                        >
+                            Cerrar sesión
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<RunningApp />);
+    </script>
+</body>
+</html>
